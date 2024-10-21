@@ -2,6 +2,8 @@ from beamngpy import BeamNGpy, Scenario, Vehicle, set_up_simple_logging
 from beamngpy.sensors import Camera, Lidar
 import cv2
 import numpy as np
+from sklearn.cluster import DBSCAN
+from numpy.lib.recfunctions import structured_to_unstructured, unstructured_to_structured
 
 def main():
     set_up_simple_logging()
@@ -57,6 +59,34 @@ def main():
 
             lidar_data = lidar.poll()
             print(lidar_data['pointCloud'].shape)
+
+            raw_points = lidar_data['pointCloud']
+            print(raw_points.dtype.names)
+            points = structured_to_unstructured(raw_points[['x', 'y', 'z']], dtype=np.float32)
+            
+            # clustering the points
+            clusterer = DBSCAN(eps=0.7, min_samples=4)
+            labels = clusterer.fit_predict(points)
+
+            if points.shape[0] == labels.shape[0]:
+                print("Points and labels are equal.")
+            else:
+                print("The nr of points does not match to the nr of labels.")
+
+            # filtering noise and calculate centroids
+            unique_labels = np.unique(labels)
+            centroids = []
+
+            for label in unique_labels:
+                if label == -1:
+                    continue
+                mask = (labels == label)
+                points3d = points[mask, :3]
+                if points3d.shape[0] < 4:
+                    continue
+                centroid = points3d.mean(axis=0)
+                centroids.append(centroid)
+                print(f"Centroid for cluster {label}: {centroid}")
 
             #if lidar_data is not None:
             #                # Process the LiDAR data here
