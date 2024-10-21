@@ -1,6 +1,6 @@
 from beamngpy import BeamNGpy, Scenario, Vehicle, set_up_simple_logging
 from beamngpy.sensors import Camera, Lidar
-import cv2
+#import cv2 not using camera currently
 import numpy as np
 from sklearn.cluster import DBSCAN
 from numpy.lib.recfunctions import structured_to_unstructured, unstructured_to_structured
@@ -28,18 +28,18 @@ def main():
     bng.scenario.start()
 
     # Create camera and attach it to vehicle
-    camera = Camera(
+    '''camera = Camera(
         name='camera1',
         bng=bng,
         vehicle=mycar,
-        is_streaming=True)
+        is_streaming=True)'''
 
 
     lidar = Lidar(
         "lidar1",
         bng,
         mycar,
-        requested_update_time=0.1,
+        requested_update_time=0.01,
         is_using_shared_memory=False,
         vertical_angle=90,
         horizontal_angle=120,
@@ -54,15 +54,17 @@ def main():
     ai_vehicle.ai.set_mode('span')
 
     try:
+        added_sphere_ids = []
+
         while True:
-            bng.control.step(10)
+            bng.control.step(1)
 
             lidar_data = lidar.poll()
             print(lidar_data['pointCloud'].shape)
 
-            raw_points = lidar_data['pointCloud']
-            print(raw_points.dtype.names)
-            points = structured_to_unstructured(raw_points[['x', 'y', 'z']], dtype=np.float32)
+            points = lidar_data['pointCloud']
+            #print(raw_points.dtype.names)
+            #points = structured_to_unstructured(raw_points[['x', 'y', 'z']], dtype=np.float32)
             
             # clustering the points
             clusterer = DBSCAN(eps=0.7, min_samples=4)
@@ -87,6 +89,21 @@ def main():
                 centroid = points3d.mean(axis=0)
                 centroids.append(centroid)
                 print(f"Centroid for cluster {label}: {centroid}")
+                
+
+            # Renove spheres
+            if added_sphere_ids:
+                bng.remove_debug_spheres(added_sphere_ids)
+            added_sphere_ids.clear()
+
+            # Prepare data for adding debug spheres
+            coordinates = [[float(centroid[0]), float(centroid[1]), float(centroid[2])] for centroid in centroids]  # Ensure float conversion
+            radii = [float(0.3) for _ in centroids]  # Smaller radius for spheres
+            colors = [(0, 1, 0, 1) for _ in centroids]  # Set color to green for all spheres (R, G, B, A)
+
+            # Add debug spheres to the simulator and store their IDs
+            added_sphere_ids = bng.add_debug_spheres(coordinates=coordinates, radii=radii, rgba_colors=colors)
+
 
             #if lidar_data is not None:
             #                # Process the LiDAR data here
