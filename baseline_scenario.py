@@ -28,6 +28,8 @@ def ground_removal(points, min_x, max_x, min_y, max_y, min_z, max_z, cell_size, 
     sorted_idx = np.argsort(-zi)
     xi_sorted, yi_sorted, zi_sorted = xi[sorted_idx], yi[sorted_idx], zi[sorted_idx]
 
+    xi_sorted = np.clip(xi_sorted, 0, grid_width - 1)
+    yi_sorted = np.clip(yi_sorted, 0, grid_height - 1)
     # fill grid with minimum Z values
     grid[xi_sorted, yi_sorted] = zi_sorted
 
@@ -75,10 +77,10 @@ def main():
         mycar,
         requested_update_time=0.01,
         is_using_shared_memory=False,
-        vertical_angle=90,
+        vertical_angle=40,
         horizontal_angle=120,
-        vertical_resolution=64,
-        pos=(0, -2, 1),
+        vertical_resolution=64, #64
+        pos=(0, -2.2, 0.7),
         dir=(0, 0, 0),  
         is_360_mode=False,  # [DEMO: DEFAULT - 360 MODE].  Uses shared memory.
     )
@@ -103,11 +105,11 @@ def main():
             #points_np = np.array(points[['x', 'y', 'z']])  # Convert structured array to numpy array
 
             #removing ground parameters
-            min_x, max_x = -30, 70 # or -50,50
-            min_y, max_y = -30, 30 # -50,50
-            min_z, max_z = -2.5, 0.05 # -1.5,1.5
-            cell_size = 0.6 # 0.5
-            tolerance = 0.15 # 0.2
+            min_x, max_x = -50,50 # or -30, 70
+            min_y, max_y = -50,50 # -30, 30
+            min_z, max_z = -1.5,1.5 # -2.5, 0.05
+            cell_size = 0.5 # 0.6
+            tolerance = 0.2 # 0.15
 
             filtered_points = ground_removal(
                 points, min_x, max_x, min_y, max_y, min_z, max_z, cell_size, tolerance
@@ -116,8 +118,9 @@ def main():
             if filtered_points.shape[0] < 1:
                 print("No points remaining after ground removal.")
             else:
+                print(filtered_points)
                 # clustering the points
-                clusterer = DBSCAN(eps=0.7, min_samples=4)
+                clusterer = DBSCAN(eps=1.2, min_samples=1) # 0.7, 4
                 labels = clusterer.fit_predict(filtered_points)
 
                 if points.shape[0] == labels.shape[0]:
@@ -133,7 +136,7 @@ def main():
                     if label == -1:
                         continue
                     mask = (labels == label)
-                    points3d = points[mask, :3]
+                    points3d = filtered_points[mask, :3]
                     if points3d.shape[0] < 4:
                         continue
                     centroid = points3d.mean(axis=0)
