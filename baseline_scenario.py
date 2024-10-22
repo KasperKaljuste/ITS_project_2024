@@ -113,43 +113,45 @@ def main():
                 points, min_x, max_x, min_y, max_y, min_z, max_z, cell_size, tolerance
             )
             
-            # clustering the points
-            clusterer = DBSCAN(eps=0.7, min_samples=4)
-            labels = clusterer.fit_predict(filtered_points)
-
-            if points.shape[0] == labels.shape[0]:
-                print("Points and labels are equal.")
+            if filtered_points.shape[0] < 1:
+                print("No points remaining after ground removal.")
             else:
-                print("The nr of points does not match to the nr of labels.")
+                # clustering the points
+                clusterer = DBSCAN(eps=0.7, min_samples=4)
+                labels = clusterer.fit_predict(filtered_points)
 
-            # filtering noise and calculate centroids
-            unique_labels = np.unique(labels)
-            centroids = []
+                if points.shape[0] == labels.shape[0]:
+                    print("Points and labels are equal.")
+                else:
+                    print("The number of points does not match the number of labels.")
 
-            for label in unique_labels:
-                if label == -1:
-                    continue
-                mask = (labels == label)
-                points3d = points[mask, :3]
-                if points3d.shape[0] < 4:
-                    continue
-                centroid = points3d.mean(axis=0)
-                centroids.append(centroid)
-                print(f"Centroid for cluster {label}: {centroid}")
+                # filtering noise and calculating centroids
+                unique_labels = np.unique(labels)
+                centroids = []
+
+                for label in unique_labels:
+                    if label == -1:
+                        continue
+                    mask = (labels == label)
+                    points3d = points[mask, :3]
+                    if points3d.shape[0] < 4:
+                        continue
+                    centroid = points3d.mean(axis=0)
+                    centroids.append(centroid)
+                    print(f"Centroid for cluster {label}: {centroid}")
                 
+                # Renove spheres
+                if added_sphere_ids:
+                    bng.remove_debug_spheres(added_sphere_ids)
+                added_sphere_ids.clear()
 
-            # Renove spheres
-            if added_sphere_ids:
-                bng.remove_debug_spheres(added_sphere_ids)
-            added_sphere_ids.clear()
+                # Prepare data for adding debug spheres
+                coordinates = [[float(centroid[0]), float(centroid[1]), float(centroid[2])] for centroid in centroids]
+                radii = [float(0.3) for _ in centroids]
+                colors = [(0, 1, 0, 1) for _ in centroids]  # Set color to green for all spheres (R, G, B, A)
 
-            # Prepare data for adding debug spheres
-            coordinates = [[float(centroid[0]), float(centroid[1]), float(centroid[2])] for centroid in centroids]  # Ensure float conversion
-            radii = [float(0.3) for _ in centroids]  # Smaller radius for spheres
-            colors = [(0, 1, 0, 1) for _ in centroids]  # Set color to green for all spheres (R, G, B, A)
-
-            # Add debug spheres to the simulator and store their IDs
-            added_sphere_ids = bng.add_debug_spheres(coordinates=coordinates, radii=radii, rgba_colors=colors)
+                # Add debug spheres to the simulator and store their IDs
+                added_sphere_ids = bng.add_debug_spheres(coordinates=coordinates, radii=radii, rgba_colors=colors)
 
 
             #if lidar_data is not None:
