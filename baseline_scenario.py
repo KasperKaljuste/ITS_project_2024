@@ -64,6 +64,9 @@ def start_scenario(bng, scenario_map, map_name):
     bng.scenario.load(scenario)
     bng.scenario.start()
 
+    # Change the speed unit to kph
+    mycar.control('unit_system', 'metric')
+
     return mycar, ai_vehicle
 
 def vehicle_location(vehicle):
@@ -114,6 +117,44 @@ def ground_removal(points, min_x, max_x, min_y, max_y, min_z, max_z, cell_size, 
 
     return non_ground_points
 
+
+def stopping_dist(velocity, reaction_time = 1, friction_coef = 0.8, extra_dist = 1):
+    #source: https://korkortonline.se/en/theory/reaction-braking-stopping/
+    #Assuming by default we have near-perfect conditions with an extra metre to spare.
+    reaction_dist = velocity * reaction_time / 3.6
+    braking_dist = velocity**2 / 250 / friction_coef
+
+    return reaction_dist + braking_dist + extra_dist
+
+def find_impact_zone(vehicle):
+    #We define the impact zone as a rectangle ranging from the front bumper of the car up until stopping distance, while also being within limits of the vehicle's bounding box.
+    #Note that the bounding box contains the min/max coordinates of the entire vehicle. 
+    #This means that the vehicle losing a part like a mirror will cause the bounding box to "expand" while the vehicle moves as the mirror is left behind, but still counts as part of the box containing the vehicle.
+    bbox = vehicle.get_bbox()
+    vehicle.update_vehicle()
+    velocity = vehicle.state['vel'] * 3.6 #velocity for all three axis in kph
+    vel_3d = (velocity[0]**2 + velocity[1]**2 + velocity[2]**2)**0.5
+
+    #corners in front of the car
+    fbl = bbox['front_bottom_left']
+    fbr = bbox['front_bottom_right']
+    ftl = bbox['front_top_left']
+    ftr = bbox['front_top_right']
+
+
+    #corners at the stopping distance
+    stop_dist = stopping_dist(velocity = vel_3d)
+
+    sdbl = fbl + stop_dist
+    sdbr = fbr + stop_dist
+    sdtl = ftl + stop_dist
+    sdtr = ftr + stop_dist
+
+    return (fbl, fbr, ftl, ftr, sdbl, sdbr, sdtl, sdtr)
+
+
+
+
 def main():
     set_up_simple_logging()
 
@@ -155,6 +196,7 @@ def main():
 
     try:
         added_sphere_ids = []
+        added_rect_ids = []
 
         while True:
             bng.control.step(1)
@@ -217,6 +259,11 @@ def main():
                     bng.remove_debug_spheres(added_sphere_ids)
                 added_sphere_ids.clear()
 
+                # Remove rectangles
+                if added_rect_ids:
+                    bng.remove_debug_rectangles(added_rect_ids)
+                added_rect_ids.clear()
+
                 # Prepare data for adding debug spheres
                 coordinates = [[float(centroid[0]), float(centroid[1]), float(centroid[2])] for centroid in centroids]
                 radii = [float(0.3) for _ in centroids]
@@ -224,6 +271,14 @@ def main():
 
                 # Add debug spheres to the simulator and store their IDs
                 added_sphere_ids = bng.add_debug_spheres(coordinates=coordinates, radii=radii, rgba_colors=colors)
+
+                # All 8 corners for impact zone
+                rec_coord = find_impact_zone(mycar)
+                bottom = [rec_coord[0], rec_coord[1], rec_coord[4], rec_coord[5]]
+
+                # Add debug rectangle only for the bottom
+                added_rect_ids = bng.add_debug_rectangle(coordinates=bottom, rgba_colors=(1, 0, 0, 1)) # set color to red for all rectangles
+
     except KeyboardInterrupt:
         print("Simulation stopped by the user.")
     finally:
