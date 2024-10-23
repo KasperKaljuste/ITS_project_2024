@@ -5,6 +5,15 @@ import numpy as np
 from sklearn.cluster import DBSCAN
 from numpy.lib.recfunctions import structured_to_unstructured, unstructured_to_structured
 
+def vehicle_height(vehicle):
+        vehicle.sensors.poll()
+        if vehicle.state:
+            position = vehicle.state['pos']
+
+            # Extract the height (z-coordinate)
+            vehicle_height = position[2]
+            return vehicle_height
+
 def ground_removal(points, cell_size, tolerance):
     # filter out of range points
     '''in_bounds = (min_x <= points[:, 0]) & (points[:, 0] < max_x) & \
@@ -100,6 +109,9 @@ def main():
 
         while True:
             bng.control.step(1)
+            
+            mycar_z = vehicle_height(mycar)
+            print(mycar_z)
 
             lidar_data = lidar.poll()
             print(lidar_data['pointCloud'].shape)
@@ -116,6 +128,8 @@ def main():
             #min_z, max_z = -1.5,1.5 # -2.5, 0.05
             cell_size = 0.5 # 0.6
             tolerance = 0.2 # 0.15
+            
+
 
             filtered_points = ground_removal(
                 points, cell_size, tolerance
