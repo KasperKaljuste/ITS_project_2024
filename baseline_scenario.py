@@ -5,25 +5,83 @@ import numpy as np
 from sklearn.cluster import DBSCAN
 from numpy.lib.recfunctions import structured_to_unstructured, unstructured_to_structured
 
-def vehicle_height(vehicle):
+scenario_map = {
+    "smallgrid": {
+        "mycar": {
+            "position": (0, 0, 0),
+            "rotation": (0, 0, 0, 1)
+        },
+        "aicar": {
+            "position": (0, -10, 0),
+            "rotation": (0, 0, 0, 1)
+        }
+    },
+    "gridmap_v2": {
+        "mycar": {
+            "position": (0, 0, 100),
+            "rotation": (0, 0, 0, 1)
+        },
+        "aicar": {
+            "position": (0, -10, 100),
+            "rotation": (0, 0, 0, 1)
+        }
+    },
+    "italy": {
+        "mycar": {
+            "position": (-353.763, 1169.096, 168.698),
+            "rotation": (0, 0, 90, 1)
+        },
+        "aicar": {
+            "position": (-361.763, 1169.096, 168.698),
+            "rotation": (0, 0, 90, 1)
+        }
+    }
+}
+
+# Function to start the scenario
+def start_scenario(bng, scenario_map, map_name):
+    scenario_config = scenario_map.get(map_name)
+    if not scenario_config:
+        raise ValueError(f"No configuration found for map: {map_name}")
+
+    scenario = Scenario(map_name, 'AI_Car_Test')
+
+    # Configure and add 'mycar'
+    mycar_pos = scenario_config["mycar"]["position"]
+    mycar_rot = scenario_config["mycar"]["rotation"]
+    mycar = Vehicle('mycar', model='etk800', license='ITS', color='Red')
+    scenario.add_vehicle(mycar, pos=mycar_pos, rot_quat=mycar_rot)
+
+    # Configure and add 'ai_vehicle'
+    ai_pos = scenario_config["aicar"]["position"]
+    ai_rot = scenario_config["aicar"]["rotation"]
+    ai_vehicle = Vehicle('ai_vehicle', model='etk800', license='AI_CAR', color='Blue')
+    scenario.add_vehicle(ai_vehicle, pos=ai_pos, rot_quat=ai_rot)
+
+    # Build and start the scenario
+    scenario.make(bng)
+    bng.settings.set_deterministic(60)
+    bng.scenario.load(scenario)
+    bng.scenario.start()
+
+    return mycar, ai_vehicle
+
+def vehicle_location(vehicle):
         vehicle.sensors.poll()
         if vehicle.state:
             position = vehicle.state['pos']
+            return position
 
-            # Extract the height (z-coordinate)
-            vehicle_height = position[2]
-            return vehicle_height
-
-def ground_removal(points, cell_size, tolerance):
+def ground_removal(points, min_x, max_x, min_y, max_y, min_z, max_z, cell_size, tolerance):
     # filter out of range points
-    '''in_bounds = (min_x <= points[:, 0]) & (points[:, 0] < max_x) & \
+    in_bounds = (min_x <= points[:, 0]) & (points[:, 0] < max_x) & \
                 (min_y <= points[:, 1]) & (points[:, 1] < max_y) & \
-                (min_z <= points[:, 2]) & (points[:, 2] < max_z)'''
+                (min_z <= points[:, 2]) & (points[:, 2] < max_z)
     min_x, max_x = np.min(points[:, 0]), np.max(points[:, 0])
     min_y, max_y = np.min(points[:, 1]), np.max(points[:, 1])
     min_z, max_z = np.min(points[:, 2]), np.max(points[:, 2]) # not used actually
     
-    #points_filtered = points[in_bounds]
+    points_filtered = points[in_bounds]
 
     # grid based on X and Y coordinates
     grid_width = int(np.ceil((max_x - min_x) / cell_size))
@@ -32,9 +90,9 @@ def ground_removal(points, cell_size, tolerance):
     grid = np.full((grid_width, grid_height), np.nan)
 
     ## convert x and y coordinates into indexes
-    xi = ((points[:, 0] - min_x) / cell_size).astype(np.int32)
-    yi = ((points[:, 1] - min_y) / cell_size).astype(np.int32)
-    zi = points[:, 2]
+    xi = ((points_filtered[:, 0] - min_x) / cell_size).astype(np.int32)
+    yi = ((points_filtered[:, 1] - min_y) / cell_size).astype(np.int32)
+    zi = points_filtered[:, 2]
 
     # Sort points by Z (descending) so we can fill the grid with minimum Z values
     sorted_idx = np.argsort(-zi)
@@ -43,16 +101,16 @@ def ground_removal(points, cell_size, tolerance):
     xi_sorted = np.clip(xi_sorted, 0, grid_width - 1)
     yi_sorted = np.clip(yi_sorted, 0, grid_height - 1)
     # fill grid with minimum Z values
-    #grid[xi_sorted, yi_sorted] = zi_sorted
-    for x, y, z in zip(xi_sorted, yi_sorted, zi_sorted):
+    grid[xi_sorted, yi_sorted] = zi_sorted
+    '''for x, y, z in zip(xi_sorted, yi_sorted, zi_sorted):
         if np.isnan(grid[x, y]):
-            grid[x, y] = z
+            grid[x, y] = z'''
 
     # create a mask to filter out ground points
     ground_mask = (zi <= (grid[xi, yi] + tolerance))
 
     # only non-ground points
-    non_ground_points = points[~ground_mask]
+    non_ground_points = points_filtered[~ground_mask]
 
     return non_ground_points
 
@@ -65,18 +123,9 @@ def main():
     bng = BeamNGpy('localhost', 64256, home=beamng_home, user=user_folder)
     bng.open(launch=True)
 
-    scenario = Scenario('smallgrid', 'AI_Car_Test')
-
-    mycar = Vehicle('mycar', model='etk800', license='ITS', color='Red')
-    scenario.add_vehicle(mycar, pos=(0, 0, 0), rot_quat=(0, 0, 0, 1))
-
-    ai_vehicle = Vehicle('ai_vehicle', model='etk800', license='AI_CAR', color='Blue')
-    scenario.add_vehicle(ai_vehicle, pos=(0, -10, 0), rot_quat=(0, 0, 0, 1))  # Position it 10 meters in front
-
-    scenario.make(bng)
-    bng.settings.set_deterministic(60)
-    bng.scenario.load(scenario)
-    bng.scenario.start()
+    # Start scenario based on the map data
+    map_name = 'italy'  # Change this to use a different map
+    mycar, ai_vehicle = start_scenario(bng, scenario_map, map_name)
 
     # Create camera and attach it to vehicle
     '''camera = Camera(
@@ -93,7 +142,7 @@ def main():
         requested_update_time=0.01,
         is_using_shared_memory=False,
         vertical_angle=40,
-        horizontal_angle=120,
+        horizontal_angle=90,
         vertical_resolution=64, #64
         pos=(0, -2.2, 0.7),
         dir=(0, 0, 0),  
@@ -102,7 +151,7 @@ def main():
 
 
     mycar.ai.set_mode('disabled') 
-    ai_vehicle.ai.set_mode('span')
+    ai_vehicle.ai.set_mode('disabled')
 
     try:
         added_sphere_ids = []
@@ -110,8 +159,8 @@ def main():
         while True:
             bng.control.step(1)
             
-            mycar_z = vehicle_height(mycar)
-            print(mycar_z)
+            mycar_xyz = vehicle_location(mycar)
+            print(mycar_xyz)
 
             lidar_data = lidar.poll()
             print(lidar_data['pointCloud'].shape)
@@ -123,16 +172,16 @@ def main():
             #points_np = np.array(points[['x', 'y', 'z']])  # Convert structured array to numpy array
 
             #removing ground parameters
-            #min_x, max_x = -50,50 # or -30, 70
-            #min_y, max_y = -50,50 # -30, 30
-            #min_z, max_z = -1.5,1.5 # -2.5, 0.05
+            min_x, max_x = mycar_xyz[0]-50,mycar_xyz[0]+50 # or -30, 70
+            min_y, max_y = mycar_xyz[1]-50,mycar_xyz[1]+50 # -30, 30
+            min_z, max_z = mycar_xyz[2]-1.5,mycar_xyz[2]+1.5 # -2.5, 0.05
             cell_size = 0.5 # 0.6
             tolerance = 0.2 # 0.15
             
 
 
             filtered_points = ground_removal(
-                points, cell_size, tolerance
+                points, min_x, max_x, min_y, max_y, min_z, max_z, cell_size, tolerance
             )
             
             if filtered_points.shape[0] < 1:
@@ -140,7 +189,7 @@ def main():
             else:
                 print(filtered_points)
                 # clustering the points
-                clusterer = DBSCAN(eps=1.2, min_samples=1) # 0.7, 4
+                clusterer = DBSCAN(eps=0.4, min_samples=1) # 0.7, 4
                 labels = clusterer.fit_predict(filtered_points)
 
                 if points.shape[0] == labels.shape[0]:
@@ -175,26 +224,6 @@ def main():
 
                 # Add debug spheres to the simulator and store their IDs
                 added_sphere_ids = bng.add_debug_spheres(coordinates=coordinates, radii=radii, rgba_colors=colors)
-
-
-            #if lidar_data is not None:
-            #                # Process the LiDAR data here
-            #                points = np.array(lidar_data['points'])
-            #                print(f"LiDAR points: {points.shape}")
-
-            #camera_data = camera.poll()
-
-            '''if camera_data is not None and 'depth' in camera_data:
-                # Convert the raw data into an image format
-                img = np.array(camera_data['depth'], dtype=np.uint8)
-                img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-                
-                # Display the image
-                cv2.imshow('Camera View', img)
-                
-                # Break on key press
-                if cv2.waitKey(1) & 0xFF == ord('q'):
-                    break'''
     except KeyboardInterrupt:
         print("Simulation stopped by the user.")
     finally:
