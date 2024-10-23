@@ -5,13 +5,16 @@ import numpy as np
 from sklearn.cluster import DBSCAN
 from numpy.lib.recfunctions import structured_to_unstructured, unstructured_to_structured
 
-def ground_removal(points, min_x, max_x, min_y, max_y, min_z, max_z, cell_size, tolerance):
+def ground_removal(points, cell_size, tolerance):
     # filter out of range points
-    in_bounds = (min_x <= points[:, 0]) & (points[:, 0] < max_x) & \
+    '''in_bounds = (min_x <= points[:, 0]) & (points[:, 0] < max_x) & \
                 (min_y <= points[:, 1]) & (points[:, 1] < max_y) & \
-                (min_z <= points[:, 2]) & (points[:, 2] < max_z)
+                (min_z <= points[:, 2]) & (points[:, 2] < max_z)'''
+    min_x, max_x = np.min(points[:, 0]), np.max(points[:, 0])
+    min_y, max_y = np.min(points[:, 1]), np.max(points[:, 1])
+    min_z, max_z = np.min(points[:, 2]), np.max(points[:, 2]) # not used actually
     
-    points_filtered = points[in_bounds]
+    #points_filtered = points[in_bounds]
 
     # grid based on X and Y coordinates
     grid_width = int(np.ceil((max_x - min_x) / cell_size))
@@ -20,9 +23,9 @@ def ground_removal(points, min_x, max_x, min_y, max_y, min_z, max_z, cell_size, 
     grid = np.full((grid_width, grid_height), np.nan)
 
     ## convert x and y coordinates into indexes
-    xi = ((points_filtered[:, 0] - min_x) / cell_size).astype(np.int32)
-    yi = ((points_filtered[:, 1] - min_y) / cell_size).astype(np.int32)
-    zi = points_filtered[:, 2]
+    xi = ((points[:, 0] - min_x) / cell_size).astype(np.int32)
+    yi = ((points[:, 1] - min_y) / cell_size).astype(np.int32)
+    zi = points[:, 2]
 
     # Sort points by Z (descending) so we can fill the grid with minimum Z values
     sorted_idx = np.argsort(-zi)
@@ -31,13 +34,16 @@ def ground_removal(points, min_x, max_x, min_y, max_y, min_z, max_z, cell_size, 
     xi_sorted = np.clip(xi_sorted, 0, grid_width - 1)
     yi_sorted = np.clip(yi_sorted, 0, grid_height - 1)
     # fill grid with minimum Z values
-    grid[xi_sorted, yi_sorted] = zi_sorted
+    #grid[xi_sorted, yi_sorted] = zi_sorted
+    for x, y, z in zip(xi_sorted, yi_sorted, zi_sorted):
+        if np.isnan(grid[x, y]):
+            grid[x, y] = z
 
     # create a mask to filter out ground points
     ground_mask = (zi <= (grid[xi, yi] + tolerance))
 
     # only non-ground points
-    non_ground_points = points_filtered[~ground_mask]
+    non_ground_points = points[~ground_mask]
 
     return non_ground_points
 
@@ -105,14 +111,14 @@ def main():
             #points_np = np.array(points[['x', 'y', 'z']])  # Convert structured array to numpy array
 
             #removing ground parameters
-            min_x, max_x = -50,50 # or -30, 70
-            min_y, max_y = -50,50 # -30, 30
-            min_z, max_z = -1.5,1.5 # -2.5, 0.05
+            #min_x, max_x = -50,50 # or -30, 70
+            #min_y, max_y = -50,50 # -30, 30
+            #min_z, max_z = -1.5,1.5 # -2.5, 0.05
             cell_size = 0.5 # 0.6
             tolerance = 0.2 # 0.15
 
             filtered_points = ground_removal(
-                points, min_x, max_x, min_y, max_y, min_z, max_z, cell_size, tolerance
+                points, cell_size, tolerance
             )
             
             if filtered_points.shape[0] < 1:
