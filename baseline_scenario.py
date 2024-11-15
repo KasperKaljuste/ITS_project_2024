@@ -180,16 +180,25 @@ def is_point_in_impact_zone(point, impact_zone):
     return min_x <= x <= max_x and min_y <= y <= max_y
 
 
-def maintain_speed(vehicle, speed_limit_kph):
+def maintain_speed(mycar, speed_limit_kph):
     # Get the vehicle's speed in km/h
-    velocity = vehicle.state['vel']
+    velocity = mycar.state['vel']
     current_speed_kph = (velocity[0]**2 + velocity[1]**2 + velocity[2]**2)**0.5 * 3.6  # Convert m/s to km/h
 
     # Adjust throttle and brake to maintain speed
     if current_speed_kph < speed_limit_kph:
-        vehicle.control(throttle=0.7, brake=0.0)  # Increase throttle if below speed limit
+        mycar.control(throttle=0.7, brake=0.0)  # Increase throttle if below speed limit
     else:
-        vehicle.control(throttle=0.0, brake=0.2)  # Apply brake if above speed limit
+        mycar.control(throttle=0.0, brake=0.2)  # Apply brake if above speed limit
+
+# apply the brake gradually not full brake
+def gradual_brake(vehicle, current_brake, target_brake, step=0.05):
+    if current_brake < target_brake:
+        current_brake = min(current_brake + step, target_brake)
+    elif current_brake > target_brake:
+        current_brake = max(current_brake - step, target_brake)
+    vehicle.control(brake=current_brake, throttle=0.0)
+    return current_brake
 
 def main():
     set_up_simple_logging()
@@ -322,11 +331,15 @@ def main():
                     if is_point_in_impact_zone(centroid, rec_coord):
                         print("Obstacle detected within the impact zone. Braking...")
                         maintain_speed_bool = False
-                        mycar.control(brake=1.0, throttle=0.0)  # Apply full brake
+                        dist_to_obstacle = np.linalg.norm(np.array(mycar_xyz) - np.array(centroid))
+                        target_brake = min(1.0, max(0.1, (10 - dist_to_obstacle) / 10))
+                        current_brake = gradual_brake(mycar, current_brake, target_brake)
+                        #mycar.control(brake=1.0, throttle=0.0)  # Apply full brake
                         bng.add_debug_spheres([[mycar_xyz[0], mycar_xyz[1], mycar_xyz[2] + 2]], [0.2], [(1, 1, 0, 1)])  # Red sphere
                         break  # Stop further checks once braking is applied
                     else:
-                        mycar.control(brake=0.0)  # Release brakes if clear
+                        current_brake = gradual_brake(mycar, current_brake, 0.0)
+                        mycar.control(throttle=0.0)
                 
                 bottom = [
                         [rec_coord[0][0], rec_coord[0][1], rec_coord[0][2] + 0.2],
