@@ -67,13 +67,14 @@ def start_scenario(bng, scenario_map, map_name):
     scenario.add_vehicle(mycar, pos=mycar_pos, rot_quat=mycar_rot)
 
     # Configure and add 'ai_vehicle'
-    ai_pos = scenario_config["aicar"]["position"]
+    # I realised we can add ai cars when simulation is running too, so this is not necessary
+    '''ai_pos = scenario_config["aicar"]["position"]
     ai_rot = scenario_config["aicar"]["rotation"]
     ai_vehicle = Vehicle('ai_vehicle', model='etk800', license='AI_CAR', color='Blue')
     scenario.add_vehicle(ai_vehicle, pos=ai_pos, rot_quat=ai_rot)
 
     # Configure and add 'ai_vehicle'
-    '''ai_pos = scenario_config["aicar2"]["position"]
+    ai_pos = scenario_config["aicar2"]["position"]
     ai_rot = scenario_config["aicar2"]["rotation"]
     ai_vehicle2 = Vehicle('ai_vehicle2', model='etk800', license='AI_CAR', color='Green')
     scenario.add_vehicle(ai_vehicle2, pos=ai_pos, rot_quat=ai_rot)'''
@@ -85,9 +86,9 @@ def start_scenario(bng, scenario_map, map_name):
     bng.scenario.start()
 
     # Change the speed unit to kph
-    #mycar.control('unit_system', 'metric')
+    # mycar.control('unit_system', 'metric')
 
-    return mycar, ai_vehicle
+    return mycar #, ai_vehicle
 
 def vehicle_location(vehicle: Vehicle):
         vehicle.sensors.poll()
@@ -126,7 +127,7 @@ def ground_removal(points, min_x, max_x, min_y, max_y, min_z, max_z, cell_size, 
 
     # only non-ground points
     non_ground_points = points_filtered[~ground_mask]
-
+    #non_ground_points = points_filtered[(~ground_mask) & (points_filtered[:, 2] < max_z )] 
     return non_ground_points
 
 
@@ -135,7 +136,7 @@ def stopping_dist(velocity, reaction_time = 1, friction_coef = 0.8, extra_dist =
     #Assuming by default we have near-perfect conditions with an extra metre to spare.
     reaction_dist = velocity * reaction_time / 3.6
     braking_dist = velocity**2 / 250 / friction_coef
-    if velocity <= 20:
+    if velocity <= 10:
         extra_dist = 0
     return reaction_dist + braking_dist + extra_dist
 
@@ -160,6 +161,7 @@ def find_impact_zone(vehicle: Vehicle):
     stop_dist = stopping_dist(velocity = vel_3d)
     
     direction_vector = np.array(vehicle.state['vel']) / np.linalg.norm(vehicle.state['vel'])
+
     stop_vector = direction_vector * stop_dist
     #corners at the stopping distance
     
@@ -170,7 +172,7 @@ def find_impact_zone(vehicle: Vehicle):
 
     return (list(fbl), list(fbr), list(ftl), list(ftr), sdbl, sdbr, sdtl, sdtr)
 
-def is_point_in_impact_zone(point, impact_zone):
+def is_point_in_impact_zone_old(point, impact_zone):
     x, y, z = point
     # Extract the bottom rectangle coordinates from the impact zone
     (fbl, fbr, ftl, ftr, sdbl, sdbr, sdtl, sdtr) = impact_zone
@@ -187,6 +189,17 @@ def is_point_in_impact_zone(point, impact_zone):
 
     return (min_x <= x <= max_x) and (min_y <= y <= max_y)
 
+from matplotlib.path import Path
+
+def is_point_in_impact_zone(point, impact_zone):
+    x, y, _ = point  # Ignore z for now
+    polygon = Path([
+        impact_zone[0][:2],  # fbl
+        impact_zone[1][:2],  # fbr
+        impact_zone[5][:2],  # sdbr
+        impact_zone[4][:2],  # sdbl
+    ])
+    return polygon.contains_point((x, y))
 
 def maintain_speed(mycar, speed_limit_kph):
     # Get the vehicle's speed in km/h
@@ -219,7 +232,7 @@ def main():
 
     # Start scenario based on the map data
     map_name = 'east_coast_usa'  # Change this to use a different map
-    mycar, ai_vehicle = start_scenario(bng, scenario_map, map_name)
+    mycar = start_scenario(bng, scenario_map, map_name)
 
     # Create camera and attach it to vehicle
     '''camera = Camera(
@@ -247,12 +260,11 @@ def main():
     mycar.ai.set_mode('disabled')
     #mycar.ai_set_target(ai_vehicle)
     #mycar.ai.set_speed(50, 'set')
-    ai_vehicle.ai.set_mode('span')
+    #ai_vehicle.ai.set_mode('span')
 
     try:
         added_sphere_ids = []
         added_rect_ids = []
-        maintain_speed_bool = False
         current_brake=0
         while True:
             bng.control.step(1)
@@ -260,26 +272,16 @@ def main():
             mycar_xyz = vehicle_location(mycar)
             print("Car Location: " + str(mycar_xyz))
             mycar.sensors.poll()
-
-            # Call maintain_speed to limit the speed of "mycar"
-            if maintain_speed_bool: 
-                maintain_speed(mycar, 150)
-
             lidar_data = lidar.poll()
-            #print(lidar_data['pointCloud'].shape)
 
             points = lidar_data['pointCloud']
-            #print(raw_points.dtype.names)
-            #points = structured_to_unstructured(raw_points[['x', 'y', 'z']], dtype=np.float32)
-
-            #points_np = np.array(points[['x', 'y', 'z']])  # Convert structured array to numpy array
 
             #removing ground parameters
-            min_x, max_x = mycar_xyz[0]-50,mycar_xyz[0]+50 # or -30, 70
+            min_x, max_x = mycar_xyz[0]-50,mycar_xyz[0]+50 # or -30, 30
             min_y, max_y = mycar_xyz[1]-50,mycar_xyz[1]+50 # -30, 30
             min_z, max_z = mycar_xyz[2],mycar_xyz[2]+2.5 # -2.5, 0.05
-            cell_size = 0.3 # 0.6
-            tolerance = 0.5 # 0.15
+            cell_size = 1 # 0.6
+            tolerance = 0.3 # 0.15
             
 
 
@@ -290,17 +292,10 @@ def main():
             if filtered_points.shape[0] < 1:
                 print("No points remaining after ground removal.")
             else:
-                #print(filtered_points)
                 # clustering the points
                 clusterer = DBSCAN(eps=0.4, min_samples=2) # 0.7, 4
                 labels = clusterer.fit_predict(filtered_points)
 
-                #if points.shape[0] == labels.shape[0]:
-                    #print("Points and labels are equal.")
-                #else:
-                    #print("The number of points does not match the number of labels.")
-
-                # filtering noise and calculating centroids
                 unique_labels = np.unique(labels)
                 centroids = []
 
@@ -313,16 +308,6 @@ def main():
                         continue
                     centroid = points3d.mean(axis=0)
                     centroids.append(centroid)
-                    #print(f"Centroid for cluster {label}: {centroid}")
-                #print(len(centroids))
-                # Remove spheres
-                if added_sphere_ids:
-                    bng.remove_debug_spheres(added_sphere_ids)
-                added_sphere_ids.clear()
-
-                # Remove rectangles
-                if added_rect_ids:
-                    bng.remove_debug_rectangle(added_rect_ids)
 
                 # Prepare data for adding debug spheres
                 coordinates = [[float(centroid[0]), float(centroid[1]), float(centroid[2])] for centroid in centroids]
@@ -338,18 +323,22 @@ def main():
                         [rec_coord[5][0], rec_coord[5][1], rec_coord[5][2] + 0.2],
                         [rec_coord[4][0], rec_coord[4][1], rec_coord[4][2] + 0.2]
                     ]
-
+                
+                # Remove rectangles
+                if added_rect_ids:
+                    bng.remove_debug_rectangle(added_rect_ids)
                 # Add debug rectangle only for the bottom
                 added_rect_ids = bng.add_debug_rectangle(vertices=bottom, rgba_color=(1, 0, 0, 1)) # set color to red for all rectangles
-                for point in rec_coord:
-                    bng.add_debug_spheres([[point[0], point[1], point[2]]], [0.2], [(0, 0, 1, 1)])  # Blue spheres
+                
+                # Alternative method for visualizing the impact zone
+                #for point in rec_coord:
+                #    bng.add_debug_spheres([[point[0], point[1], point[2]]], [0.2], [(0, 0, 1, 1)])  # Blue spheres
 
                 for i, centroid in enumerate(centroids):
                     if is_point_in_impact_zone(centroid, rec_coord):
                         print("Obstacle detected within the impact zone. Braking...")
                         #print(str(centroid))
 
-                        maintain_speed_bool = False
                         colors[i] = (1, 0, 0, 1)
                         # Calculate distance to obstacle
                         dist_to_obstacle = np.linalg.norm(np.array(mycar_xyz) - np.array(centroid))
@@ -371,19 +360,14 @@ def main():
                         # Release the brake if no obstacle is in the impact zone
                         mycar.control(brake=0.0)
                 
+                
+                # Remove old spheres
+                if added_sphere_ids:
+                    bng.remove_debug_spheres(added_sphere_ids)
+                added_sphere_ids.clear()
+
                 # Add debug spheres to the simulator and store their IDs
                 added_sphere_ids = bng.add_debug_spheres(coordinates=coordinates, radii=radii, rgba_colors=colors)
-
-                '''bottom = [
-                        [rec_coord[0][0], rec_coord[0][1], rec_coord[0][2] + 0.2],
-                        [rec_coord[1][0], rec_coord[1][1], rec_coord[1][2] + 0.2],
-                        [rec_coord[5][0], rec_coord[5][1], rec_coord[5][2] + 0.2],
-                        [rec_coord[4][0], rec_coord[4][1], rec_coord[4][2] + 0.2]
-                    ]
-                '''
-                # Add debug rectangle only for the bottom
-                #added_rect_ids = bng.add_debug_rectangle(vertices=bottom, rgba_color=(1, 0, 0, 1)) # set color to red for all rectangles
-                #print(rec_coord)
     except KeyboardInterrupt:
         print("Simulation stopped by the user.")
     finally:
